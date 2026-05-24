@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <vector>
+
 
 class COccResurfDoc : public CDocument
 {
@@ -20,7 +22,12 @@ public:
 
 	Handle(AIS_InteractiveContext) myAISContext;
 	Handle(V3d_Viewer) myViewer;
-	Handle(V3d_Viewer) GetViewer(void) { return myViewer; }
+	Handle(V3d_Viewer) GetViewer(void) const { return myViewer; }
+	Handle(AIS_InteractiveContext) GetAISContext(void) const { return myAISContext; }
+	const std::vector<Handle(AIS_Shape)>& GetModelShapes() const { return myModelShapes; }
+	bool HasModelShapes() const { return !myModelShapes.empty(); }
+	const gp_Pnt& GetModelCenter() const { return myModelCenter; }
+	void UpdateModelCenter();
 
 // 重写
 public:
@@ -51,4 +58,9 @@ protected:
 	// 用于为搜索处理程序设置搜索内容的 Helper 函数
 	void SetSearchContent(const CString& value);
 #endif // SHARED_HANDLERS
+
+private:
+	std::vector<Handle(AIS_Shape)> myModelShapes;
+	gp_Pnt myModelCenter;
+	bool m_bModelBuilt;
 };

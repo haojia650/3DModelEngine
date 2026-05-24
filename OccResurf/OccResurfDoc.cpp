@@ -23,6 +23,8 @@
 #include <gp_Vec.hxx>
 #include <Quantity_Color.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Dir.hxx>
 #ifdef _DEBUG
@@ -52,7 +54,8 @@ COccResurfDoc::COccResurfDoc() noexcept
 	myAISContext = new AIS_InteractiveContext(myViewer);
 
 	myAISContext->SetDisplayMode(AIS_Shaded, true);
-	myAISContext->SetAutomaticHilight(Standard_False);
+	myAISContext->SetAutomaticHilight(Standard_True);
+	m_bModelBuilt = false;
 }
 
 COccResurfDoc::~COccResurfDoc()
@@ -158,8 +161,45 @@ void COccResurfDoc::Dump(CDumpContext& dc) const
 
 // COccResurfDoc 命令
 
+void COccResurfDoc::UpdateModelCenter()
+{
+	if (myModelShapes.empty())
+	{
+		myModelCenter = gp_Pnt(0.0, 0.0, 0.0);
+		return;
+	}
+
+	Bnd_Box aBox;
+	for (const auto& aShape : myModelShapes)
+	{
+		if (!aShape.IsNull())
+		{
+			BRepBndLib::Add(aShape->Shape(), aBox);
+		}
+	}
+
+	if (aBox.IsVoid())
+	{
+		myModelCenter = gp_Pnt(0.0, 0.0, 0.0);
+		return;
+	}
+
+	Standard_Real xmin = 0.0, ymin = 0.0, zmin = 0.0;
+	Standard_Real xmax = 0.0, ymax = 0.0, zmax = 0.0;
+	aBox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+	myModelCenter.SetCoord((xmin + xmax) * 0.5, (ymin + ymax) * 0.5, (zmin + zmax) * 0.5);
+}
+
 void COccResurfDoc::DrawSphere(double Radius)
 {
+	(void)Radius;
+	if (m_bModelBuilt)
+	{
+		return;
+	}
+
+	myModelShapes.clear();
+
 	// ========== 经典高达配色 ==========
 	const Quantity_Color COLOR_MAIN(Quantity_NOC_WHITE);      // 主体白
 	const Quantity_Color COLOR_ARMOR(Quantity_NOC_BLUE4);      // 装甲蓝
@@ -175,6 +215,7 @@ void COccResurfDoc::DrawSphere(double Radius)
 			TopoDS_Shape aTransShape = BRepBuilderAPI_Transform(theShape, theTrsf, Standard_True);
 			Handle(AIS_Shape) anAis = new AIS_Shape(aTransShape);
 			anAis->SetColor(theColor);
+			myModelShapes.push_back(anAis);
 			myAISContext->Display(anAis, Standard_False);
 		};
 
@@ -337,9 +378,7 @@ void COccResurfDoc::DrawSphere(double Radius)
 	DrawShape(booster, boostRTrsf, COLOR_DECO);
 
 	// ========== 刷新视图 ==========
+	UpdateModelCenter();
+	m_bModelBuilt = true;
 	myAISContext->UpdateCurrentViewer();
-	CMDIFrameWnd* pFrame = (CMDIFrameWnd*)AfxGetApp()->m_pMainWnd;
-	CMDIChildWnd* pChild = (CMDIChildWnd*)pFrame->GetActiveFrame();
-	COccResurfView* pView = (COccResurfView*)pChild->GetActiveView();
-	pView->FitAll();
 }
