@@ -7,7 +7,6 @@
 
 #include <vector>
 
-
 class COccResurfDoc : public CDocument
 {
 protected: // 仅从序列化创建
@@ -25,9 +24,11 @@ public:
 	Handle(V3d_Viewer) GetViewer(void) const { return myViewer; }
 	Handle(AIS_InteractiveContext) GetAISContext(void) const { return myAISContext; }
 	const std::vector<Handle(AIS_Shape)>& GetModelShapes() const { return myModelShapes; }
+	std::vector<Handle(AIS_Shape)>& AccessModelShapes() { return myModelShapes; }
 	bool HasModelShapes() const { return !myModelShapes.empty(); }
 	const gp_Pnt& GetModelCenter() const { return myModelCenter; }
 	void UpdateModelCenter();
+	void SetModelBuilt(bool theBuilt) { m_bModelBuilt = theBuilt; }
 
 // 重写
 public:

@@ -20,6 +20,8 @@ public:
 
 // 操作
 public:
+	CPropertiesWnd& GetPropertiesPane() { return m_wndProperties; }
+	CFileView& GetFileViewPane() { return m_wndFileView; }
 
 // 重写
 public:

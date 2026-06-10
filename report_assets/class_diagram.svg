@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980">
+  <defs>
+    <style>
+      .title { font: 700 30px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #1f2937; }
+      .classTitle { font: 700 22px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #0f172a; }
+      .txt { font: 500 18px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #111827; }
+      .small { font: 500 16px "Microsoft YaHei", "PingFang SC", sans-serif; fill: #334155; }
+      .cls { fill: #ffffff; stroke: #0f172a; stroke-width: 3; rx: 14; }
+      .head { fill: #dbeafe; stroke: #0f172a; stroke-width: 3; }
+      .line { stroke: #334155; stroke-width: 3; fill: none; }
+      .dash { stroke: #64748b; stroke-width: 2.5; stroke-dasharray: 10 8; fill: none; }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#334155"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="980" fill="#ffffff"/>
+  <text x="800" y="58" text-anchor="middle" class="title">3D模型交互系统类图</text>
+
+  <!-- COccResurfView -->
+  <rect x="80" y="120" width="430" height="360" class="cls"/>
+  <rect x="80" y="120" width="430" height="52" class="head"/>
+  <text x="295" y="154" text-anchor="middle" class="classTitle">COccResurfView</text>
+  <line x1="80" y1="172" x2="510" y2="172" class="line"/>
+  <text x="100" y="206" class="txt">- myView : V3d_View</text>
+  <text x="100" y="236" class="txt">- m_currentMode : int</text>
+  <text x="100" y="266" class="txt">- m_lockedAxis : int</text>
+  <text x="100" y="296" class="txt">- m_bIsRotating : bool</text>
+  <text x="100" y="326" class="txt">- m_bIsTransforming : bool</text>
+  <text x="100" y="356" class="txt">- m_transformStates : map</text>
+  <line x1="80" y1="380" x2="510" y2="380" class="line"/>
+  <text x="100" y="414" class="txt">+ PreTranslateMessage()</text>
+  <text x="100" y="444" class="txt">+ SelectModelAtPoint()</text>
+  <text x="100" y="474" class="txt">+ ApplyTransform()</text>
+  <text x="100" y="504" class="txt">+ ResetTransform()</text>
+  <text x="100" y="534" class="txt">+ ApplyTransformPermanently()</text>
+  <text x="100" y="564" class="txt">+ ExitTransformMode()</text>
+
+  <!-- COccResurfDoc -->
+  <rect x="615" y="120" width="410" height="320" class="cls"/>
+  <rect x="615" y="120" width="410" height="52" class="head"/>
+  <text x="820" y="154" text-anchor="middle" class="classTitle">COccResurfDoc</text>
+  <line x1="615" y1="172" x2="1025" y2="172" class="line"/>
+  <text x="635" y="206" class="txt">- myAISContext : AIS_InteractiveContext</text>
+  <text x="635" y="236" class="txt">- myViewer : V3d_Viewer</text>
+  <text x="635" y="266" class="txt">- myModelShapes : vector&lt;AIS_Shape&gt;</text>
+  <text x="635" y="296" class="txt">- myModelCenter : gp_Pnt</text>
+  <text x="635" y="326" class="txt">- m_bModelBuilt : bool</text>
+  <line x1="615" y1="350" x2="1025" y2="350" class="line"/>
+  <text x="635" y="384" class="txt">+ GetAISContext()</text>
+  <text x="635" y="414" class="txt">+ GetViewer()</text>
+  <text x="635" y="444" class="txt">+ DrawSphere()</text>
+
+  <!-- TransformState -->
+  <rect x="1100" y="120" width="340" height="250" class="cls"/>
+  <rect x="1100" y="120" width="340" height="52" class="head"/>
+  <text x="1270" y="154" text-anchor="middle" class="classTitle">TransformState</text>
+  <line x1="1100" y1="172" x2="1440" y2="172" class="line"/>
+  <text x="1120" y="206" class="txt">+ translation : gp_Vec</text>
+  <text x="1120" y="236" class="txt">+ rotationX : Real</text>
+  <text x="1120" y="266" class="txt">+ rotationY : Real</text>
+  <text x="1120" y="296" class="txt">+ rotationZ : Real</text>
+  <text x="1120" y="326" class="txt">+ uniformScale : Real</text>
+
+  <!-- AIS_InteractiveContext -->
+  <rect x="610" y="560" width="360" height="220" class="cls"/>
+  <rect x="610" y="560" width="360" height="52" class="head"/>
+  <text x="790" y="594" text-anchor="middle" class="classTitle">AIS_InteractiveContext</text>
+  <line x1="610" y1="612" x2="970" y2="612" class="line"/>
+  <text x="630" y="646" class="txt">+ MoveTo()</text>
+  <text x="630" y="676" class="txt">+ SelectDetected()</text>
+  <text x="630" y="706" class="txt">+ Redisplay()</text>
+  <text x="630" y="736" class="txt">+ UpdateCurrentViewer()</text>
+
+  <!-- V3d_View -->
+  <rect x="90" y="600" width="320" height="220" class="cls"/>
+  <rect x="90" y="600" width="320" height="52" class="head"/>
+  <text x="250" y="634" text-anchor="middle" class="classTitle">V3d_View</text>
+  <line x1="90" y1="652" x2="410" y2="652" class="line"/>
+  <text x="110" y="686" class="txt">+ StartRotation()</text>
+  <text x="110" y="716" class="txt">+ Rotation()</text>
+  <text x="110" y="746" class="txt">+ FitAll()</text>
+  <text x="110" y="776" class="txt">+ Camera()</text>
+
+  <!-- AIS_Shape -->
+  <rect x="1080" y="560" width="340" height="240" class="cls"/>
+  <rect x="1080" y="560" width="340" height="52" class="head"/>
+  <text x="1250" y="594" text-anchor="middle" class="classTitle">AIS_Shape</text>
+  <line x1="1080" y1="612" x2="1420" y2="612" class="line"/>
+  <text x="1100" y="646" class="txt">+ SetLocalTransformation()</text>
+  <text x="1100" y="676" class="txt">+ SetShape()</text>
+  <text x="1100" y="706" class="txt">+ ResetTransformation()</text>
+  <text x="1100" y="736" class="txt">+ Shape()</text>
+
+  <!-- Relations -->
+  <line x1="510" y1="230" x2="615" y2="230" class="line" marker-end="url(#arrow)"/>
+  <text x="540" y="215" class="small">关联</text>
+
+  <line x1="420" y1="620" x2="420" y2="430" class="line"/>
+  <line x1="420" y1="430" x2="510" y2="430" class="line" marker-end="url(#arrow)"/>
+  <text x="430" y="520" class="small">控制视图</text>
+
+  <line x1="790" y1="560" x2="790" y2="440" class="line" marker-end="url(#arrow)"/>
+  <text x="805" y="510" class="small">提供</text>
+
+  <line x1="1080" y1="690" x2="970" y2="690" class="line" marker-end="url(#arrow)"/>
+  <text x="995" y="675" class="small">被管理</text>
+
+  <line x1="1025" y1="280" x2="1100" y2="280" class="line" marker-end="url(#arrow)"/>
+  <text x="1035" y="262" class="small">组合</text>
+
+  <line x1="510" y1="320" x2="1100" y2="320" class="dash" marker-end="url(#arrow)"/>
+  <text x="760" y="305" class="small">维护对象变换状态</text>
+
+</svg>

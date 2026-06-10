@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <vector>
 #include <unordered_map>
 
 class COccResurfView : public CView
@@ -57,6 +58,16 @@ protected:
 		AXIS_Z = 2
 	};
 
+	enum NavigationMode
+	{
+		NAV_NONE = 0,
+		NAV_VIEW_ROTATE = 1,
+		NAV_VIEW_PAN = 2,
+		NAV_VIEW_BOX_ZOOM = 3,
+		NAV_SELECT_BOX = 4,
+		NAV_SELECT_CIRCLE = 5
+	};
+
 	struct TransformState
 	{
 		gp_Vec translation;
@@ -75,13 +86,53 @@ protected:
 		}
 	};
 
+	struct ShapeSnapshot
+	{
+		TopoDS_Shape shape;
+		Quantity_Color color;
+		gp_Trsf localTransform;
+		TransformState transformState;
+	};
+
+	struct SceneSnapshot
+	{
+		std::vector<ShapeSnapshot> shapes;
+	};
+
 	void ApplyTransform(Handle(AIS_InteractiveContext) ctx, const gp_Trsf& theTransform);
+	void ApplyTransformToSelected(Handle(AIS_InteractiveContext) ctx, const gp_Trsf& trsf);
 	void ResetTransform(Handle(AIS_InteractiveContext) ctx, int type);
 	void UpdateSelectedTransforms(Handle(AIS_InteractiveContext) ctx);
 	void ApplyTransformPermanently(Handle(AIS_InteractiveContext) ctx);
 	void ApplyMouseTransform(Handle(AIS_InteractiveContext) ctx, const CPoint& delta);
 	void ExitTransformMode();
-	void SelectModelAtPoint(const CPoint& point);
+	void ResetNavigationMode();
+	void SelectModelAtPoint(const CPoint& point, const AIS_SelectionScheme theScheme = AIS_SelectionScheme_Replace);
+	void SelectAllDisplayedObjects(Handle(AIS_InteractiveContext) ctx);
+	void InvertDisplayedSelection(Handle(AIS_InteractiveContext) ctx);
+	void HideUnselectedObjects(Handle(AIS_InteractiveContext) ctx);
+	void DuplicateSelectedObjects(Handle(AIS_InteractiveContext) ctx);
+	void DeleteSelectedObjects(Handle(AIS_InteractiveContext) ctx);
+	void ApplySelectionRectangle(Handle(AIS_InteractiveContext) ctx, const CPoint& point);
+	void ApplyCircleSelection(Handle(AIS_InteractiveContext) ctx, const CPoint& point);
+	void ApplyBoxZoom(const CPoint& point);
+	bool HandleObjectClick(UINT nFlags, const CPoint& point);
+	bool HandleEditClick(UINT nFlags, const CPoint& point);
+	void UpdateViewer();
+	SceneSnapshot CaptureScene() const;
+	void RestoreScene(const SceneSnapshot& snapshot);
+	void RecordUndoSnapshot();
+	void SaveProjectToFile(const CString& filePath);
+	void OpenProjectFromFile(const CString& filePath);
+	void ClearScene();
+	void DrawDragRectangle(const CPoint& currentPoint);
+	void ClearDragRectangle();
+	void CommitTransformMode();
+	void ClearAllSelection();
+	bool GetSingleSelectedSubShape(TopoDS_Shape& subShape, Handle(AIS_Shape)& parentShape) const;
+	void CollectSelectedSubShapes(std::vector<TopoDS_Shape>& subShapes, std::vector<Handle(AIS_Shape)>& parentShapes) const;
+	void ToggleRightSidebar();
+	void ToggleLeftToolbar();
 	gp_Trsf BuildShapeTransform(const Handle(AIS_Shape)& theShape) const;
 	gp_Pnt GetShapeCenter(const Handle(AIS_Shape)& theShape) const;
 	Handle(AIS_Shape) GetSelectedShape(Handle(AIS_InteractiveContext) ctx) const;
@@ -95,15 +146,29 @@ protected:
 
 	// 鼠标交互：旋转视图 + 变换模型
 	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
+	afx_msg void OnMButtonDown(UINT nFlags, CPoint point);
 	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
 	afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
+	afx_msg void OnMButtonUp(UINT nFlags, CPoint point);
+	afx_msg BOOL OnMouseWheel(UINT nFlags, short zDelta, CPoint pt);
 
 	int m_currentMode;
+	int m_navigationMode;
+	bool m_isEditMode;
+	Standard_Integer m_selectMode;
 	int m_lockedAxis;
+	bool m_isOrthoView;
+	bool m_isWireframeOnly;
+	int m_shadeMode;
 	bool m_bHasMouseMoved;
+	bool m_hasSelectionAnchor;
+	bool m_hasDragOverlay;
 	CPoint m_lastMousePoint;
 	CPoint m_mouseDownPoint;
+	CPoint m_overlayLastPoint;
 	std::unordered_map<const AIS_InteractiveObject*, TransformState> m_transformStates;
+	std::vector<SceneSnapshot> m_undoSnapshots;
+	std::vector<SceneSnapshot> m_redoSnapshots;
 
 	DECLARE_MESSAGE_MAP()
 };
