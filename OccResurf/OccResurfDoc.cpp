@@ -12,10 +12,15 @@
 
 #include "OccResurfDoc.h"
 
+#include "MainFrm.h"
 #include "OccResurfView.h"
 
 #include <propkey.h>
 
+#include <algorithm>
+#include <sstream>
+#include <string>
+#include <BinTools.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -27,9 +32,18 @@
 #include <Bnd_Box.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Dir.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <TDataStd_Name.hxx>
+#include <TDataStd_Real.hxx>
+#include <TNaming_Builder.hxx>
 #ifdef _DEBUG
 //#define new DEBUG_NEW
 #endif
+
+namespace
+{
+const UINT kOccResurfDocumentVersion = 1;
+}
 
 // COccResurfDoc
 
@@ -56,6 +70,8 @@ COccResurfDoc::COccResurfDoc() noexcept
 	myAISContext->SetDisplayMode(AIS_Shaded, true);
 	myAISContext->SetAutomaticHilight(Standard_True);
 	m_bModelBuilt = false;
+	m_nextObjectId = 1;
+	InitializeOcafDocument();
 }
 
 COccResurfDoc::~COccResurfDoc()
@@ -69,6 +85,8 @@ BOOL COccResurfDoc::OnNewDocument()
 
 	// TODO: 在此添加重新初始化代码
 	// (SDI 文档将重用该文档)
+	ClearDocumentModel();
+	SetModifiedFlag(FALSE);
 
 	return TRUE;
 }
@@ -80,14 +98,7 @@ BOOL COccResurfDoc::OnNewDocument()
 
 void COccResurfDoc::Serialize(CArchive& ar)
 {
-	if (ar.IsStoring())
-	{
-		// TODO: 在此添加存储代码
-	}
-	else
-	{
-		// TODO: 在此添加加载代码
-	}
+	SerializePrimitiveObjects(ar);
 }
 
 #ifdef SHARED_HANDLERS
@@ -188,6 +199,642 @@ void COccResurfDoc::UpdateModelCenter()
 	Standard_Real xmax = 0.0, ymax = 0.0, zmax = 0.0;
 	aBox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
 	myModelCenter.SetCoord((xmin + xmax) * 0.5, (ymin + ymax) * 0.5, (zmin + zmax) * 0.5);
+}
+
+COccResurfDoc::PrimitiveObject* COccResurfDoc::FindObjectById(int id)
+{
+	for (auto& object : myPrimitiveObjects)
+	{
+		if (object.id == id)
+		{
+			return &object;
+		}
+	}
+
+	return nullptr;
+}
+
+const COccResurfDoc::PrimitiveObject* COccResurfDoc::FindObjectById(int id) const
+{
+	for (const auto& object : myPrimitiveObjects)
+	{
+		if (object.id == id)
+		{
+			return &object;
+		}
+	}
+
+	return nullptr;
+}
+
+COccResurfDoc::PrimitiveObject* COccResurfDoc::FindObjectByShape(const Handle(AIS_Shape)& shape)
+{
+	if (shape.IsNull())
+	{
+		return nullptr;
+	}
+
+	for (auto& object : myPrimitiveObjects)
+	{
+		if (object.aisShape == shape)
+		{
+			return &object;
+		}
+	}
+
+	return nullptr;
+}
+
+int COccResurfDoc::AddBoxObject(double length, double width, double height)
+{
+	PrimitiveObject object;
+	object.id = m_nextObjectId++;
+	object.kind = PrimitiveKind::Box;
+	object.name = MakePrimitiveName(object.kind);
+	object.parameters =
+	{
+		{ _T("length"), length },
+		{ _T("width"), width },
+		{ _T("height"), height }
+	};
+	RebuildObjectShape(object);
+	myPrimitiveObjects.push_back(object);
+	UpdateModelCenter();
+	m_bModelBuilt = true;
+	SetModifiedFlag(TRUE);
+	return object.id;
+}
+
+int COccResurfDoc::AddSphereObject(double radius)
+{
+	PrimitiveObject object;
+	object.id = m_nextObjectId++;
+	object.kind = PrimitiveKind::Sphere;
+	object.name = MakePrimitiveName(object.kind);
+	object.parameters = { { _T("radius"), radius } };
+	RebuildObjectShape(object);
+	myPrimitiveObjects.push_back(object);
+	UpdateModelCenter();
+	m_bModelBuilt = true;
+	SetModifiedFlag(TRUE);
+	return object.id;
+}
+
+int COccResurfDoc::AddCylinderObject(double radius, double height)
+{
+	PrimitiveObject object;
+	object.id = m_nextObjectId++;
+	object.kind = PrimitiveKind::Cylinder;
+	object.name = MakePrimitiveName(object.kind);
+	object.parameters =
+	{
+		{ _T("radius"), radius },
+		{ _T("height"), height }
+	};
+	RebuildObjectShape(object);
+	myPrimitiveObjects.push_back(object);
+	UpdateModelCenter();
+	m_bModelBuilt = true;
+	SetModifiedFlag(TRUE);
+	return object.id;
+}
+
+bool COccResurfDoc::UpdateObjectParameter(int objectId, const CString& parameterName, double value)
+{
+	PrimitiveObject* object = FindObjectById(objectId);
+	if (object == nullptr || value <= 0.0)
+	{
+		return false;
+	}
+
+	bool updated = false;
+	for (auto& parameter : object->parameters)
+	{
+		if (parameter.name.CompareNoCase(parameterName) == 0)
+		{
+			parameter.value = value;
+			updated = true;
+			break;
+		}
+	}
+
+	if (!updated)
+	{
+		return false;
+	}
+
+	RebuildObjectShape(*object);
+	UpdateModelCenter();
+	SetModifiedFlag(TRUE);
+	return true;
+}
+
+bool COccResurfDoc::DeleteObject(int objectId)
+{
+	auto it = std::find_if(myPrimitiveObjects.begin(), myPrimitiveObjects.end(),
+		[objectId](const PrimitiveObject& object) { return object.id == objectId; });
+	if (it == myPrimitiveObjects.end())
+	{
+		return false;
+	}
+
+	if (!myAISContext.IsNull() && !it->aisShape.IsNull())
+	{
+		myAISContext->Remove(it->aisShape, Standard_False);
+	}
+
+	myModelShapes.erase(std::remove_if(myModelShapes.begin(), myModelShapes.end(),
+		[&it](const Handle(AIS_Shape)& shape) { return shape == it->aisShape; }),
+		myModelShapes.end());
+	myPrimitiveObjects.erase(it);
+	UpdateModelCenter();
+	m_bModelBuilt = !myModelShapes.empty();
+	if (!myAISContext.IsNull())
+	{
+		myAISContext->UpdateCurrentViewer();
+	}
+	SetModifiedFlag(TRUE);
+	return true;
+}
+
+int COccResurfDoc::DeleteSelectedModelObjects()
+{
+	if (myAISContext.IsNull())
+	{
+		return 0;
+	}
+
+	std::vector<int> idsToDelete;
+	for (myAISContext->InitSelected(); myAISContext->MoreSelected(); myAISContext->NextSelected())
+	{
+		Handle(AIS_Shape) shape = Handle(AIS_Shape)::DownCast(myAISContext->SelectedInteractive());
+		PrimitiveObject* object = FindObjectByShape(shape);
+		if (object != nullptr)
+		{
+			idsToDelete.push_back(object->id);
+		}
+	}
+
+	int deleted = 0;
+	for (const int id : idsToDelete)
+	{
+		if (DeleteObject(id))
+		{
+			++deleted;
+		}
+	}
+	myAISContext->ClearSelected(Standard_False);
+	if (deleted > 0)
+	{
+		SetModifiedFlag(TRUE);
+	}
+	return deleted;
+}
+
+void COccResurfDoc::ClearPrimitiveObjects()
+{
+	if (!myAISContext.IsNull())
+	{
+		for (const auto& object : myPrimitiveObjects)
+		{
+			if (!object.aisShape.IsNull())
+			{
+				myAISContext->Remove(object.aisShape, Standard_False);
+			}
+		}
+	}
+
+	myModelShapes.erase(std::remove_if(myModelShapes.begin(), myModelShapes.end(),
+		[this](const Handle(AIS_Shape)& shape)
+		{
+			for (const auto& object : myPrimitiveObjects)
+			{
+				if (shape == object.aisShape)
+				{
+					return true;
+				}
+			}
+			return false;
+		}),
+		myModelShapes.end());
+	myPrimitiveObjects.clear();
+	UpdateModelCenter();
+	m_bModelBuilt = !myModelShapes.empty();
+}
+
+void COccResurfDoc::ClearDocumentModel()
+{
+	if (!myAISContext.IsNull())
+	{
+		for (const auto& shape : myModelShapes)
+		{
+			if (!shape.IsNull())
+			{
+				myAISContext->Remove(shape, Standard_False);
+			}
+		}
+		myAISContext->ClearSelected(Standard_False);
+	}
+
+	myModelShapes.clear();
+	myPrimitiveObjects.clear();
+	InitializeOcafDocument();
+	m_nextObjectId = 1;
+	m_bModelBuilt = false;
+	UpdateModelCenter();
+}
+
+std::vector<COccResurfDoc::PrimitiveObjectState> COccResurfDoc::CapturePrimitiveObjectStates() const
+{
+	std::vector<PrimitiveObjectState> states;
+	states.reserve(myPrimitiveObjects.size());
+	for (const auto& object : myPrimitiveObjects)
+	{
+		PrimitiveObjectState state;
+		state.id = object.id;
+		state.kind = object.kind;
+		state.name = object.name;
+		state.parameters = object.parameters;
+		if (!object.aisShape.IsNull())
+		{
+			state.localTransformation = object.aisShape->LocalTransformation();
+		}
+		states.push_back(state);
+	}
+	return states;
+}
+
+void COccResurfDoc::RestorePrimitiveObjectStates(const std::vector<PrimitiveObjectState>& states)
+{
+	ClearDocumentModel();
+	int nextId = 1;
+	myPrimitiveObjects.reserve(states.size());
+	for (const auto& state : states)
+	{
+		PrimitiveObject object;
+		object.id = state.id;
+		object.kind = state.kind;
+		object.name = state.name;
+		object.parameters = state.parameters;
+		RebuildObjectShape(object);
+		if (!object.aisShape.IsNull())
+		{
+			object.aisShape->SetLocalTransformation(state.localTransformation);
+			if (!myAISContext.IsNull())
+			{
+				myAISContext->Redisplay(object.aisShape, Standard_False);
+			}
+		}
+		myPrimitiveObjects.push_back(object);
+		if (nextId < object.id + 1)
+		{
+			nextId = object.id + 1;
+		}
+	}
+
+	m_nextObjectId = nextId;
+	m_bModelBuilt = !myModelShapes.empty();
+	UpdateModelCenter();
+	if (!myAISContext.IsNull())
+	{
+		myAISContext->UpdateCurrentViewer();
+	}
+}
+
+void COccResurfDoc::RebuildPrimitiveObjectsAfterLoad()
+{
+	const std::vector<PrimitiveObjectState> states = CapturePrimitiveObjectStates();
+	RestorePrimitiveObjectStates(states);
+}
+
+void COccResurfDoc::SerializePrimitiveObjects(CArchive& ar)
+{
+	if (ar.IsStoring())
+	{
+		ar << kOccResurfDocumentVersion;
+		const UINT count = static_cast<UINT>(myPrimitiveObjects.size());
+		ar << count;
+		for (const auto& object : myPrimitiveObjects)
+		{
+			ar << object.id;
+			ar << static_cast<int>(object.kind);
+			ar << object.name;
+			const UINT parameterCount = static_cast<UINT>(object.parameters.size());
+			ar << parameterCount;
+			for (const auto& parameter : object.parameters)
+			{
+				ar << parameter.name;
+				ar << parameter.value;
+			}
+
+			const gp_Trsf localTransformation = object.aisShape.IsNull()
+				? gp_Trsf()
+				: object.aisShape->LocalTransformation();
+			for (int row = 1; row <= 3; ++row)
+			{
+				for (int col = 1; col <= 4; ++col)
+				{
+					ar << localTransformation.Value(row, col);
+				}
+			}
+		}
+
+		UINT shapeCount = 0;
+		for (const auto& shape : myModelShapes)
+		{
+			if (!shape.IsNull() && !IsPrimitiveShape(shape))
+			{
+				++shapeCount;
+			}
+		}
+		ar << shapeCount;
+		for (const auto& shape : myModelShapes)
+		{
+			if (shape.IsNull() || IsPrimitiveShape(shape))
+			{
+				continue;
+			}
+
+			std::ostringstream shapeStream(std::ios::binary);
+			BinTools::Write(shape->Shape(), shapeStream);
+			const std::string binary = shapeStream.str();
+			const UINT byteCount = static_cast<UINT>(binary.size());
+			ar << byteCount;
+			if (byteCount > 0)
+			{
+				ar.Write(binary.data(), byteCount);
+			}
+
+			Quantity_Color color;
+			shape->Color(color);
+			ar << color.Red() << color.Green() << color.Blue();
+
+			const gp_Trsf localTransformation = shape->LocalTransformation();
+			for (int row = 1; row <= 3; ++row)
+			{
+				for (int col = 1; col <= 4; ++col)
+				{
+					ar << localTransformation.Value(row, col);
+				}
+			}
+		}
+		return;
+	}
+
+	UINT version = 0;
+	ar >> version;
+	if (version != kOccResurfDocumentVersion)
+	{
+		AfxThrowArchiveException(CArchiveException::badSchema);
+	}
+
+	UINT count = 0;
+	ar >> count;
+	std::vector<PrimitiveObjectState> states;
+	states.reserve(count);
+	for (UINT i = 0; i < count; ++i)
+	{
+		PrimitiveObjectState state;
+		int kind = 0;
+		ar >> state.id;
+		ar >> kind;
+		state.kind = static_cast<PrimitiveKind>(kind);
+		ar >> state.name;
+
+		UINT parameterCount = 0;
+		ar >> parameterCount;
+		state.parameters.reserve(parameterCount);
+		for (UINT parameterIndex = 0; parameterIndex < parameterCount; ++parameterIndex)
+		{
+			PrimitiveParameter parameter;
+			ar >> parameter.name;
+			ar >> parameter.value;
+			state.parameters.push_back(parameter);
+		}
+
+		double matrix[12] = {};
+		int matrixIndex = 0;
+		for (int row = 1; row <= 3; ++row)
+		{
+			for (int col = 1; col <= 4; ++col)
+			{
+				ar >> matrix[matrixIndex++];
+			}
+		}
+		state.localTransformation.SetValues(
+			matrix[0], matrix[1], matrix[2], matrix[3],
+			matrix[4], matrix[5], matrix[6], matrix[7],
+			matrix[8], matrix[9], matrix[10], matrix[11]);
+		states.push_back(state);
+	}
+
+	RestorePrimitiveObjectStates(states);
+	UINT shapeCount = 0;
+	ar >> shapeCount;
+	for (UINT i = 0; i < shapeCount; ++i)
+	{
+		UINT byteCount = 0;
+		ar >> byteCount;
+		std::string binary(byteCount, '\0');
+		if (byteCount > 0)
+		{
+			ar.Read(&binary[0], byteCount);
+		}
+
+		std::istringstream shapeStream(binary, std::ios::binary);
+		TopoDS_Shape topoShape;
+		BinTools::Read(topoShape, shapeStream);
+
+		double red = 1.0;
+		double green = 1.0;
+		double blue = 1.0;
+		ar >> red >> green >> blue;
+
+		double matrix[12] = {};
+		int matrixIndex = 0;
+		for (int row = 1; row <= 3; ++row)
+		{
+			for (int col = 1; col <= 4; ++col)
+			{
+				ar >> matrix[matrixIndex++];
+			}
+		}
+		gp_Trsf localTransformation;
+		localTransformation.SetValues(
+			matrix[0], matrix[1], matrix[2], matrix[3],
+			matrix[4], matrix[5], matrix[6], matrix[7],
+			matrix[8], matrix[9], matrix[10], matrix[11]);
+
+		Handle(AIS_Shape) aisShape = new AIS_Shape(topoShape);
+		aisShape->SetColor(Quantity_Color(red, green, blue, Quantity_TOC_RGB));
+		aisShape->SetLocalTransformation(localTransformation);
+		myModelShapes.push_back(aisShape);
+		if (!myAISContext.IsNull())
+		{
+			myAISContext->Display(aisShape, Standard_False);
+		}
+	}
+	m_bModelBuilt = !myModelShapes.empty();
+	UpdateModelCenter();
+	if (!myAISContext.IsNull())
+	{
+		myAISContext->UpdateCurrentViewer();
+	}
+	SetModifiedFlag(FALSE);
+	UpdateAllViews(nullptr);
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd());
+	if (mainFrame != nullptr)
+	{
+		mainFrame->RefreshObjectPanels();
+	}
+}
+
+TopoDS_Shape COccResurfDoc::BuildPrimitiveShape(const PrimitiveObject& object) const
+{
+	auto param = [&object](LPCTSTR name, double fallback)
+		{
+			for (const auto& parameter : object.parameters)
+			{
+				if (parameter.name.CompareNoCase(name) == 0)
+				{
+					return parameter.value;
+				}
+			}
+			return fallback;
+		};
+
+	switch (object.kind)
+	{
+	case PrimitiveKind::Box:
+		return BRepPrimAPI_MakeBox(param(_T("length"), 10.0), param(_T("width"), 10.0), param(_T("height"), 10.0)).Shape();
+	case PrimitiveKind::Sphere:
+		return BRepPrimAPI_MakeSphere(param(_T("radius"), 10.0)).Shape();
+	case PrimitiveKind::Cylinder:
+		return BRepPrimAPI_MakeCylinder(param(_T("radius"), 5.0), param(_T("height"), 10.0)).Shape();
+	default:
+		return TopoDS_Shape();
+	}
+}
+
+void COccResurfDoc::InitializeOcafDocument()
+{
+	myOcafDocument = new TDocStd_Document(TCollection_ExtendedString("OccResurf"));
+}
+
+void COccResurfDoc::StoreObjectInOcaf(PrimitiveObject& object)
+{
+	if (myOcafDocument.IsNull())
+	{
+		InitializeOcafDocument();
+	}
+
+	if (object.label.IsNull())
+	{
+		object.label = myOcafDocument->Main().NewChild();
+	}
+
+	USES_CONVERSION;
+	TDataStd_Name::Set(object.label, TCollection_ExtendedString(T2A(object.name)));
+	TDataStd_Name::Set(object.label.FindChild(1, Standard_True), TCollection_ExtendedString(T2A(PrimitiveKindToString(object.kind))));
+	if (!object.aisShape.IsNull())
+	{
+		TNaming_Builder builder(object.label);
+		builder.Generated(object.aisShape->Shape());
+	}
+
+	int childIndex = 10;
+	for (const auto& parameter : object.parameters)
+	{
+		TDF_Label parameterLabel = object.label.FindChild(childIndex++, Standard_True);
+		TDataStd_Name::Set(parameterLabel, TCollection_ExtendedString(T2A(parameter.name)));
+		TDataStd_Real::Set(parameterLabel, parameter.value);
+	}
+}
+
+void COccResurfDoc::RebuildObjectShape(PrimitiveObject& object)
+{
+	const TopoDS_Shape shape = BuildPrimitiveShape(object);
+	if (shape.IsNull())
+	{
+		return;
+	}
+
+	if (object.aisShape.IsNull())
+	{
+		object.aisShape = new AIS_Shape(shape);
+		switch (object.kind)
+		{
+		case PrimitiveKind::Box:
+			object.aisShape->SetColor(Quantity_NOC_STEELBLUE);
+			break;
+		case PrimitiveKind::Sphere:
+			object.aisShape->SetColor(Quantity_NOC_SEAGREEN);
+			break;
+		case PrimitiveKind::Cylinder:
+			object.aisShape->SetColor(Quantity_NOC_GOLDENROD);
+			break;
+		default:
+			break;
+		}
+		myModelShapes.push_back(object.aisShape);
+		if (!myAISContext.IsNull())
+		{
+			myAISContext->Display(object.aisShape, Standard_False);
+		}
+	}
+	else
+	{
+		object.aisShape->SetShape(shape);
+		if (!myAISContext.IsNull())
+		{
+			myAISContext->Redisplay(object.aisShape, Standard_False);
+		}
+	}
+
+	StoreObjectInOcaf(object);
+	if (!myAISContext.IsNull())
+	{
+		myAISContext->UpdateCurrentViewer();
+	}
+}
+
+bool COccResurfDoc::IsPrimitiveShape(const Handle(AIS_Shape)& shape) const
+{
+	if (shape.IsNull())
+	{
+		return false;
+	}
+
+	for (const auto& object : myPrimitiveObjects)
+	{
+		if (shape == object.aisShape)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+CString COccResurfDoc::MakePrimitiveName(PrimitiveKind kind) const
+{
+	CString name;
+	name.Format(_T("%s_%d"), static_cast<LPCTSTR>(PrimitiveKindToString(kind)), m_nextObjectId - 1);
+	return name;
+}
+
+CString COccResurfDoc::PrimitiveKindToString(PrimitiveKind kind) const
+{
+	switch (kind)
+	{
+	case PrimitiveKind::Box:
+		return _T("Box");
+	case PrimitiveKind::Sphere:
+		return _T("Sphere");
+	case PrimitiveKind::Cylinder:
+		return _T("Cylinder");
+	default:
+		return _T("Object");
+	}
 }
 
 void COccResurfDoc::DrawSphere(double Radius)

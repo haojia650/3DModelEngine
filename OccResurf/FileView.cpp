@@ -5,6 +5,7 @@
 #include "FileView.h"
 #include "Resource.h"
 #include "OccResurf.h"
+#include "OccResurfDoc.h"
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -36,6 +37,7 @@ BEGIN_MESSAGE_MAP(CFileView, CDockablePane)
 	ON_COMMAND(ID_EDIT_CLEAR, OnEditClear)
 	ON_WM_PAINT()
 	ON_WM_SETFOCUS()
+	ON_NOTIFY(TVN_SELCHANGED, 4, &CFileView::OnTreeSelectionChanged)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -76,8 +78,7 @@ int CFileView::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	// 所有命令将通过此控件路由，而不是通过主框架路由: 
 	m_wndToolBar.SetRouteCommandsViaFrame(FALSE);
 
-	// 填入一些静态树视图数据(此处只需填入虚拟代码，而不是复杂的数据)
-	FillFileView();
+	RefreshObjectTree();
 	AdjustLayout();
 
 	return 0;
@@ -91,37 +92,40 @@ void CFileView::OnSize(UINT nType, int cx, int cy)
 
 void CFileView::FillFileView()
 {
-	HTREEITEM hRoot = m_wndFileView.InsertItem(_T("FakeApp 文件"), 0, 0);
+	m_wndFileView.DeleteAllItems();
+	HTREEITEM hRoot = m_wndFileView.InsertItem(_T("Objects"), 0, 0);
+	m_wndFileView.SetItemState(hRoot, TVIS_BOLD, TVIS_BOLD);
+	m_wndFileView.Expand(hRoot, TVE_EXPAND);
+}
+
+void CFileView::RefreshObjectTree()
+{
+	m_wndFileView.DeleteAllItems();
+	HTREEITEM hRoot = m_wndFileView.InsertItem(_T("Objects"), 0, 0);
 	m_wndFileView.SetItemState(hRoot, TVIS_BOLD, TVIS_BOLD);
 
-	HTREEITEM hSrc = m_wndFileView.InsertItem(_T("FakeApp 源文件"), 0, 0, hRoot);
-
-	m_wndFileView.InsertItem(_T("FakeApp.cpp"), 1, 1, hSrc);
-	m_wndFileView.InsertItem(_T("FakeApp.rc"), 1, 1, hSrc);
-	m_wndFileView.InsertItem(_T("FakeAppDoc.cpp"), 1, 1, hSrc);
-	m_wndFileView.InsertItem(_T("FakeAppView.cpp"), 1, 1, hSrc);
-	m_wndFileView.InsertItem(_T("MainFrm.cpp"), 1, 1, hSrc);
-	m_wndFileView.InsertItem(_T("pch.cpp"), 1, 1, hSrc);
-
-	HTREEITEM hInc = m_wndFileView.InsertItem(_T("FakeApp 头文件"), 0, 0, hRoot);
-
-	m_wndFileView.InsertItem(_T("FakeApp.h"), 2, 2, hInc);
-	m_wndFileView.InsertItem(_T("FakeAppDoc.h"), 2, 2, hInc);
-	m_wndFileView.InsertItem(_T("FakeAppView.h"), 2, 2, hInc);
-	m_wndFileView.InsertItem(_T("Resource.h"), 2, 2, hInc);
-	m_wndFileView.InsertItem(_T("MainFrm.h"), 2, 2, hInc);
-	m_wndFileView.InsertItem(_T("pch.h"), 2, 2, hInc);
-
-	HTREEITEM hRes = m_wndFileView.InsertItem(_T("FakeApp 资源文件"), 0, 0, hRoot);
-
-	m_wndFileView.InsertItem(_T("FakeApp.ico"), 2, 2, hRes);
-	m_wndFileView.InsertItem(_T("FakeApp.rc2"), 2, 2, hRes);
-	m_wndFileView.InsertItem(_T("FakeAppDoc.ico"), 2, 2, hRes);
-	m_wndFileView.InsertItem(_T("FakeToolbar.bmp"), 2, 2, hRes);
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd());
+	COccResurfDoc* doc = mainFrame != nullptr ? mainFrame->GetActiveOccDocument() : nullptr;
+	if (doc != nullptr)
+	{
+		for (const auto& object : doc->GetDocumentModelObjects())
+		{
+			HTREEITEM item = m_wndFileView.InsertItem(object.name, 1, 1, hRoot);
+			m_wndFileView.SetItemData(item, static_cast<DWORD_PTR>(object.id));
+		}
+	}
 
 	m_wndFileView.Expand(hRoot, TVE_EXPAND);
-	m_wndFileView.Expand(hSrc, TVE_EXPAND);
-	m_wndFileView.Expand(hInc, TVE_EXPAND);
+}
+
+int CFileView::GetSelectedObjectId() const
+{
+	HTREEITEM item = m_wndFileView.GetSelectedItem();
+	if (item == nullptr)
+	{
+		return 0;
+	}
+	return static_cast<int>(m_wndFileView.GetItemData(item));
 }
 
 void CFileView::OnContextMenu(CWnd* pWnd, CPoint point)
@@ -222,6 +226,19 @@ void CFileView::OnSetFocus(CWnd* pOldWnd)
 	CDockablePane::OnSetFocus(pOldWnd);
 
 	m_wndFileView.SetFocus();
+}
+
+void CFileView::OnTreeSelectionChanged(NMHDR*, LRESULT* pResult)
+{
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd());
+	if (mainFrame != nullptr)
+	{
+		mainFrame->ShowObjectProperties(GetSelectedObjectId());
+	}
+	if (pResult != nullptr)
+	{
+		*pResult = 0;
+	}
 }
 
 void CFileView::OnChangeVisualStyle()

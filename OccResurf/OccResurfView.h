@@ -40,6 +40,12 @@ public:
 #endif
 
 	void FitAll() { if (!myView.IsNull()) { myView->FitAll(); myView->ZFitAll(); } };
+	void RefreshSelectionHighlights();
+	bool UndoLastAction();
+	bool RedoLastAction();
+	bool CanUndo() const { return !m_undoSnapshots.empty(); }
+	bool CanRedo() const { return !m_redoSnapshots.empty(); }
+	void RecordUndoSnapshot();
 
 protected:
 	enum TransformMode
@@ -97,6 +103,7 @@ protected:
 	struct SceneSnapshot
 	{
 		std::vector<ShapeSnapshot> shapes;
+		std::vector<COccResurfDoc::PrimitiveObjectState> primitiveObjects;
 	};
 
 	void ApplyTransform(Handle(AIS_InteractiveContext) ctx, const gp_Trsf& theTransform);
@@ -121,7 +128,6 @@ protected:
 	void UpdateViewer();
 	SceneSnapshot CaptureScene() const;
 	void RestoreScene(const SceneSnapshot& snapshot);
-	void RecordUndoSnapshot();
 	void SaveProjectToFile(const CString& filePath);
 	void OpenProjectFromFile(const CString& filePath);
 	void ClearScene();
@@ -129,6 +135,8 @@ protected:
 	void ClearDragRectangle();
 	void CommitTransformMode();
 	void ClearAllSelection();
+	void ClearSelectionHighlights();
+	void UpdateSelectionHighlights();
 	bool GetSingleSelectedSubShape(TopoDS_Shape& subShape, Handle(AIS_Shape)& parentShape) const;
 	void CollectSelectedSubShapes(std::vector<TopoDS_Shape>& subShapes, std::vector<Handle(AIS_Shape)>& parentShapes) const;
 	void ToggleRightSidebar();
@@ -166,6 +174,7 @@ protected:
 	CPoint m_lastMousePoint;
 	CPoint m_mouseDownPoint;
 	CPoint m_overlayLastPoint;
+	std::vector<Handle(AIS_Shape)> m_selectionHighlights;
 	std::unordered_map<const AIS_InteractiveObject*, TransformState> m_transformStates;
 	std::vector<SceneSnapshot> m_undoSnapshots;
 	std::vector<SceneSnapshot> m_redoSnapshots;

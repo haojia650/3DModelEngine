@@ -19,6 +19,8 @@ public:
 	CPropertiesWnd() noexcept;
 
 	void AdjustLayout();
+	void ShowObjectProperties(int objectId);
+	void ClearObjectProperties();
 
 // 特性
 public:
@@ -51,6 +53,7 @@ protected:
 	afx_msg void OnUpdateProperties2(CCmdUI* pCmdUI);
 	afx_msg void OnSetFocus(CWnd* pOldWnd);
 	afx_msg void OnSettingChange(UINT uFlags, LPCTSTR lpszSection);
+	afx_msg LRESULT OnPropertyChanged(WPARAM wp, LPARAM lp);
 
 	DECLARE_MESSAGE_MAP()
 
@@ -58,5 +61,7 @@ protected:
 	void SetPropListFont();
 
 	int m_nComboHeight;
+	int m_currentObjectId;
+	bool m_isUpdatingProperties;
 };
 

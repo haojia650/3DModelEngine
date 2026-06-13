@@ -6,6 +6,8 @@
 #include "Resource.h"
 #include "MainFrm.h"
 #include "OccResurf.h"
+#include "OccResurfDoc.h"
+#include "OccResurfView.h"
 
 #ifdef _DEBUG
 #undef THIS_FILE
@@ -19,6 +21,8 @@ static char THIS_FILE[]=__FILE__;
 CPropertiesWnd::CPropertiesWnd() noexcept
 {
 	m_nComboHeight = 0;
+	m_currentObjectId = 0;
+	m_isUpdatingProperties = false;
 }
 
 CPropertiesWnd::~CPropertiesWnd()
@@ -38,6 +42,7 @@ BEGIN_MESSAGE_MAP(CPropertiesWnd, CDockablePane)
 	ON_UPDATE_COMMAND_UI(ID_PROPERTIES2, OnUpdateProperties2)
 	ON_WM_SETFOCUS()
 	ON_WM_SETTINGCHANGE()
+	ON_REGISTERED_MESSAGE(AFX_WM_PROPERTY_CHANGED, &CPropertiesWnd::OnPropertyChanged)
 END_MESSAGE_MAP()
 
 /////////////////////////////////////////////////////////////////////////////
@@ -77,8 +82,7 @@ int CPropertiesWnd::OnCreate(LPCREATESTRUCT lpCreateStruct)
 		return -1;      // 未能创建
 	}
 
-	m_wndObjectCombo.AddString(_T("应用程序"));
-	m_wndObjectCombo.AddString(_T("属性窗口"));
+	m_wndObjectCombo.AddString(_T("Object Parameters"));
 	m_wndObjectCombo.SetCurSel(0);
 
 	CRect rectCombo;
@@ -163,6 +167,8 @@ void CPropertiesWnd::InitPropList()
 	m_wndPropList.EnableDescriptionArea();
 	m_wndPropList.SetVSDotNetLook();
 	m_wndPropList.MarkModifiedProperties();
+	ClearObjectProperties();
+	return;
 
 	CMFCPropertyGridProperty* pGroup1 = new CMFCPropertyGridProperty(_T("外观"));
 
@@ -250,6 +256,51 @@ void CPropertiesWnd::OnSettingChange(UINT uFlags, LPCTSTR lpszSection)
 	SetPropListFont();
 }
 
+void CPropertiesWnd::ShowObjectProperties(int objectId)
+{
+	m_isUpdatingProperties = true;
+	m_currentObjectId = objectId;
+	m_wndPropList.RemoveAll();
+
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd());
+	COccResurfDoc* doc = mainFrame != nullptr ? mainFrame->GetActiveOccDocument() : nullptr;
+	const COccResurfDoc::PrimitiveObject* object = doc != nullptr ? doc->FindObjectById(objectId) : nullptr;
+	if (object == nullptr)
+	{
+		ClearObjectProperties();
+		m_isUpdatingProperties = false;
+		return;
+	}
+
+	CMFCPropertyGridProperty* group = new CMFCPropertyGridProperty(object->name);
+	CMFCPropertyGridProperty* nameProp = new CMFCPropertyGridProperty(_T("name"), (_variant_t)object->name, _T("Object name"));
+	nameProp->Enable(FALSE);
+	group->AddSubItem(nameProp);
+
+	for (const auto& parameter : object->parameters)
+	{
+		CMFCPropertyGridProperty* prop = new CMFCPropertyGridProperty(parameter.name, (_variant_t)parameter.value, _T("Primitive parameter"));
+		prop->SetData(1);
+		group->AddSubItem(prop);
+	}
+
+	group->Expand(TRUE);
+	m_wndPropList.AddProperty(group);
+	m_wndPropList.RedrawWindow();
+	m_isUpdatingProperties = false;
+}
+
+void CPropertiesWnd::ClearObjectProperties()
+{
+	m_currentObjectId = 0;
+	m_wndPropList.RemoveAll();
+	CMFCPropertyGridProperty* empty = new CMFCPropertyGridProperty(_T("No object selected"));
+	empty->AddSubItem(new CMFCPropertyGridProperty(_T("hint"),
+		COleVariant(_T("Select an object or create one with box/sphere/cylinder.")),
+		_T("")));
+	m_wndPropList.AddProperty(empty);
+}
+
 void CPropertiesWnd::SetPropListFont()
 {
 	::DeleteObject(m_fntPropList.Detach());
@@ -270,4 +321,60 @@ void CPropertiesWnd::SetPropListFont()
 
 	m_wndPropList.SetFont(&m_fntPropList);
 	m_wndObjectCombo.SetFont(&m_fntPropList);
+}
+
+LRESULT CPropertiesWnd::OnPropertyChanged(WPARAM, LPARAM lp)
+{
+	if (m_isUpdatingProperties || m_currentObjectId == 0)
+	{
+		return 0;
+	}
+
+	CMFCPropertyGridProperty* prop = reinterpret_cast<CMFCPropertyGridProperty*>(lp);
+	if (prop == nullptr || prop->GetData() == 0)
+	{
+		return 0;
+	}
+
+	CString parameterName = prop->GetName();
+	const COleVariant& value = prop->GetValue();
+	double numericValue = 0.0;
+	if (value.vt == VT_R8)
+	{
+		numericValue = value.dblVal;
+	}
+	else if (value.vt == VT_R4)
+	{
+		numericValue = value.fltVal;
+	}
+	else if (value.vt == VT_I4)
+	{
+		numericValue = static_cast<double>(value.lVal);
+	}
+	else if (value.vt == VT_BSTR)
+	{
+		numericValue = _tstof(CString(value.bstrVal));
+	}
+	else
+	{
+		return 0;
+	}
+
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd());
+	COccResurfDoc* doc = mainFrame != nullptr ? mainFrame->GetActiveOccDocument() : nullptr;
+	COccResurfView* view = mainFrame != nullptr ? mainFrame->GetActiveOccView() : nullptr;
+	if (view != nullptr)
+	{
+		view->RecordUndoSnapshot();
+	}
+	if (doc != nullptr && doc->UpdateObjectParameter(m_currentObjectId, parameterName, numericValue))
+	{
+		if (view != nullptr)
+		{
+			view->RefreshSelectionHighlights();
+		}
+		mainFrame->RefreshObjectPanels(m_currentObjectId);
+	}
+
+	return 0;
 }

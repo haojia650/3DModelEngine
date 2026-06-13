@@ -166,41 +166,27 @@ BOOL COccResurfView::PreTranslateMessage(MSG* pMsg)
 		// Team member 5: Global document commands and display settings.
 		if (ctrl && shift && key == 'Z')
 		{
-			if (!m_redoSnapshots.empty())
-			{
-				m_undoSnapshots.push_back(CaptureScene());
-				const SceneSnapshot aSnapshot = m_redoSnapshots.back();
-				m_redoSnapshots.pop_back();
-				RestoreScene(aSnapshot);
-			}
+			RedoLastAction();
 			return TRUE;
 		}
 		if (ctrl && !shift && key == 'Z')
 		{
-			if (!m_undoSnapshots.empty())
-			{
-				m_redoSnapshots.push_back(CaptureScene());
-				const SceneSnapshot aSnapshot = m_undoSnapshots.back();
-				m_undoSnapshots.pop_back();
-				RestoreScene(aSnapshot);
-			}
+			UndoLastAction();
 			return TRUE;
 		}
 		if (ctrl && key == 'S')
 		{
-			SaveProjectToFile(_T("project.3d"));
-			AfxMessageBox(_T("Project saved"));
+			AfxGetApp()->OnCmdMsg(ID_FILE_SAVE, 0, nullptr, nullptr);
 			return TRUE;
 		}
 		if (ctrl && key == 'N')
 		{
-			RecordUndoSnapshot();
-			ClearScene();
+			AfxGetApp()->OnCmdMsg(ID_FILE_NEW, 0, nullptr, nullptr);
 			return TRUE;
 		}
 		if (ctrl && key == 'O')
 		{
-			OpenProjectFromFile(_T("project.3d"));
+			AfxGetApp()->OnCmdMsg(ID_FILE_OPEN, 0, nullptr, nullptr);
 			return TRUE;
 		}
 		if (!isTransformModeActive && !ctrl && shift && key == 'Z')
@@ -271,11 +257,6 @@ BOOL COccResurfView::PreTranslateMessage(MSG* pMsg)
 				UpdateViewer();
 				return TRUE;
 			}
-			if (!ctrl && shift && key == 'B')
-			{
-				m_navigationMode = NAV_VIEW_BOX_ZOOM;
-				return TRUE;
-			}
 			if (key == VK_NUMPAD1)
 			{
 				myView->SetProj(ctrl ? V3d_Ypos : V3d_Yneg, Standard_False);
@@ -344,7 +325,7 @@ BOOL COccResurfView::PreTranslateMessage(MSG* pMsg)
 		// Team member 2: selection and object editing shortcuts.
 		if (!isTransformModeActive && !m_isEditMode && !ctx.IsNull())
 		{
-			if (!alt && !ctrl && key == 'A')
+			if (!alt && !ctrl && shift && key == 'A')
 			{
 				SelectAllDisplayedObjects(ctx);
 				return TRUE;
@@ -377,6 +358,7 @@ BOOL COccResurfView::PreTranslateMessage(MSG* pMsg)
 			if (!alt && !shift && key == 'H')
 			{
 				RecordUndoSnapshot();
+				ClearSelectionHighlights();
 				ctx->EraseSelected(Standard_True);
 				UpdateViewer();
 				return TRUE;
@@ -384,7 +366,9 @@ BOOL COccResurfView::PreTranslateMessage(MSG* pMsg)
 			if (alt && key == 'H')
 			{
 				RecordUndoSnapshot();
+				ClearSelectionHighlights();
 				ctx->DisplayAll(Standard_True);
+				UpdateSelectionHighlights();
 				UpdateViewer();
 				return TRUE;
 			}
@@ -755,6 +739,66 @@ void COccResurfView::ClearAllSelection()
 	ctx->ClearDetected(Standard_False);
 	ctx->UpdateSelected(Standard_True);
 	m_hasSelectionAnchor = false;
+	ClearSelectionHighlights();
+	UpdateViewer();
+}
+
+void COccResurfView::ClearSelectionHighlights()
+{
+	Handle(AIS_InteractiveContext) ctx = GetDocument()->GetAISContext();
+	if (!ctx.IsNull())
+	{
+		for (const auto& aHighlight : m_selectionHighlights)
+		{
+			if (!aHighlight.IsNull())
+			{
+				ctx->Remove(aHighlight, Standard_False);
+			}
+		}
+	}
+
+	m_selectionHighlights.clear();
+}
+
+void COccResurfView::UpdateSelectionHighlights()
+{
+	Handle(AIS_InteractiveContext) ctx = GetDocument()->GetAISContext();
+	if (ctx.IsNull())
+	{
+		m_selectionHighlights.clear();
+		return;
+	}
+
+	std::vector<Handle(AIS_Shape)> aSelectedShapes;
+	for (ctx->InitSelected(); ctx->MoreSelected(); ctx->NextSelected())
+	{
+		Handle(AIS_Shape) aShape = Handle(AIS_Shape)::DownCast(ctx->SelectedInteractive());
+		if (!aShape.IsNull() && IsModelShape(aShape))
+		{
+			aSelectedShapes.push_back(aShape);
+		}
+	}
+
+	ClearSelectionHighlights();
+	m_selectionHighlights.reserve(aSelectedShapes.size());
+	for (const auto& aShape : aSelectedShapes)
+	{
+		Handle(AIS_Shape) aHighlight = new AIS_Shape(aShape->Shape());
+		aHighlight->SetColor(Quantity_NOC_YELLOW);
+		aHighlight->SetWidth(4.0);
+		aHighlight->SetTransparency(0.15);
+		aHighlight->SetLocalTransformation(aShape->LocalTransformation());
+		aHighlight->SetAutoHilight(Standard_False);
+		ctx->Display(aHighlight, AIS_WireFrame, -1, Standard_False);
+		m_selectionHighlights.push_back(aHighlight);
+	}
+
+	m_hasSelectionAnchor = !m_selectionHighlights.empty();
+}
+
+void COccResurfView::RefreshSelectionHighlights()
+{
+	UpdateSelectionHighlights();
 	UpdateViewer();
 }
 
@@ -963,11 +1007,8 @@ void COccResurfView::ApplyTransform(Handle(AIS_InteractiveContext) ctx, const gp
 		}
 	}
 
-	ctx->UpdateCurrentViewer();
-	if (!myView.IsNull())
-	{
-		myView->Update();
-	}
+	UpdateSelectionHighlights();
+	UpdateViewer();
 }
 
 // Team member 4: Apply transform helper
@@ -979,6 +1020,7 @@ void COccResurfView::ApplyTransformToSelected(Handle(AIS_InteractiveContext) ctx
 	}
 
 	RecordUndoSnapshot();
+	ClearSelectionHighlights();
 	for (ctx->InitSelected(); ctx->MoreSelected(); ctx->NextSelected())
 	{
 		Handle(AIS_Shape) aShape = Handle(AIS_Shape)::DownCast(ctx->SelectedInteractive());
@@ -1017,11 +1059,8 @@ void COccResurfView::UpdateSelectedTransforms(Handle(AIS_InteractiveContext) ctx
 		}
 	}
 
-	ctx->UpdateCurrentViewer();
-	if (!myView.IsNull())
-	{
-		myView->Update();
-	}
+	UpdateSelectionHighlights();
+	UpdateViewer();
 }
 
 void COccResurfView::ResetTransform(Handle(AIS_InteractiveContext) ctx, int type)
@@ -1070,11 +1109,8 @@ void COccResurfView::ApplyTransformPermanently(Handle(AIS_InteractiveContext) ct
 	aShape->ResetTransformation();
 	ctx->Redisplay(aShape, Standard_False);
 	GetTransformState(aShape) = TransformState();
-	ctx->UpdateCurrentViewer();
-	if (!myView.IsNull())
-	{
-		myView->Update();
-	}
+	UpdateSelectionHighlights();
+	UpdateViewer();
 }
 
 void COccResurfView::ApplyMouseTransform(Handle(AIS_InteractiveContext) ctx, const CPoint& delta)
@@ -1179,12 +1215,13 @@ void COccResurfView::ApplyMouseTransform(Handle(AIS_InteractiveContext) ctx, con
 COccResurfView::SceneSnapshot COccResurfView::CaptureScene() const
 {
 	SceneSnapshot aSnapshot;
+	aSnapshot.primitiveObjects = GetDocument()->CapturePrimitiveObjectStates();
 	const auto& aShapes = GetDocument()->GetModelShapes();
 	aSnapshot.shapes.reserve(aShapes.size());
 
 	for (const auto& aShape : aShapes)
 	{
-		if (aShape.IsNull())
+		if (aShape.IsNull() || GetDocument()->IsPrimitiveShape(aShape))
 		{
 			continue;
 		}
@@ -1206,10 +1243,14 @@ COccResurfView::SceneSnapshot COccResurfView::CaptureScene() const
 
 void COccResurfView::RestoreScene(const SceneSnapshot& snapshot)
 {
-	ClearScene();
+	Handle(AIS_InteractiveContext) ctx = GetDocument()->GetAISContext();
+	if (!ctx.IsNull())
+	{
+		ClearSelectionHighlights();
+	}
+	GetDocument()->RestorePrimitiveObjectStates(snapshot.primitiveObjects);
 
 	auto& aShapes = GetDocument()->AccessModelShapes();
-	Handle(AIS_InteractiveContext) ctx = GetDocument()->GetAISContext();
 	for (const auto& aShapeSnapshot : snapshot.shapes)
 	{
 		Handle(AIS_Shape) aShape = new AIS_Shape(aShapeSnapshot.shape);
@@ -1226,12 +1267,47 @@ void COccResurfView::RestoreScene(const SceneSnapshot& snapshot)
 	GetDocument()->SetModelBuilt(!aShapes.empty());
 	GetDocument()->UpdateModelCenter();
 	UpdateViewer();
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd());
+	if (mainFrame != nullptr)
+	{
+		mainFrame->RefreshObjectPanels();
+	}
 }
 
 void COccResurfView::RecordUndoSnapshot()
 {
 	m_undoSnapshots.push_back(CaptureScene());
 	m_redoSnapshots.clear();
+}
+
+bool COccResurfView::UndoLastAction()
+{
+	if (m_undoSnapshots.empty())
+	{
+		return false;
+	}
+
+	m_redoSnapshots.push_back(CaptureScene());
+	const SceneSnapshot snapshot = m_undoSnapshots.back();
+	m_undoSnapshots.pop_back();
+	RestoreScene(snapshot);
+	GetDocument()->SetModifiedFlag(TRUE);
+	return true;
+}
+
+bool COccResurfView::RedoLastAction()
+{
+	if (m_redoSnapshots.empty())
+	{
+		return false;
+	}
+
+	m_undoSnapshots.push_back(CaptureScene());
+	const SceneSnapshot snapshot = m_redoSnapshots.back();
+	m_redoSnapshots.pop_back();
+	RestoreScene(snapshot);
+	GetDocument()->SetModifiedFlag(TRUE);
+	return true;
 }
 
 void COccResurfView::SaveProjectToFile(const CString& filePath)
@@ -1359,6 +1435,7 @@ void COccResurfView::ClearScene()
 
 	if (!ctx.IsNull())
 	{
+		ClearSelectionHighlights();
 		for (const auto& aShape : aShapes)
 		{
 			if (!aShape.IsNull())
@@ -1370,11 +1447,18 @@ void COccResurfView::ClearScene()
 	}
 
 	aShapes.clear();
+	m_selectionHighlights.clear();
 	m_transformStates.clear();
 	m_hasSelectionAnchor = false;
+	GetDocument()->ClearPrimitiveObjects();
 	GetDocument()->SetModelBuilt(false);
 	GetDocument()->UpdateModelCenter();
 	UpdateViewer();
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd());
+	if (mainFrame != nullptr)
+	{
+		mainFrame->RefreshObjectPanels();
+	}
 }
 
 void COccResurfView::DrawDragRectangle(const CPoint& currentPoint)
@@ -1460,13 +1544,23 @@ bool COccResurfView::HandleObjectClick(UINT nFlags, const CPoint& point)
 		return true;
 	}
 
-	ctx->InitDetected();
-	const Handle(SelectMgr_EntityOwner) detectedOwner =
-		ctx->MoreDetected() ? ctx->DetectedCurrentOwner() : Handle(SelectMgr_EntityOwner)();
-	const Handle(AIS_InteractiveObject) detectedObject =
-		detectedOwner.IsNull()
-		? Handle(AIS_InteractiveObject)()
-		: Handle(AIS_InteractiveObject)::DownCast(detectedOwner->Selectable());
+	Handle(AIS_InteractiveObject) detectedObject;
+	for (ctx->InitDetected(); ctx->MoreDetected(); ctx->NextDetected())
+	{
+		const Handle(SelectMgr_EntityOwner) detectedOwner = ctx->DetectedCurrentOwner();
+		if (detectedOwner.IsNull())
+		{
+			continue;
+		}
+
+		Handle(AIS_InteractiveObject) anObject =
+			Handle(AIS_InteractiveObject)::DownCast(detectedOwner->Selectable());
+		if (IsModelShape(anObject))
+		{
+			detectedObject = anObject;
+			break;
+		}
+	}
 
 	if (detectedObject.IsNull() || !IsModelShape(detectedObject))
 	{
@@ -1477,34 +1571,30 @@ bool COccResurfView::HandleObjectClick(UINT nFlags, const CPoint& point)
 		return true;
 	}
 
-	if (aScheme == AIS_SelectionScheme_Replace && ctx->IsSelected(detectedObject))
-	{
-		ClearAllSelection();
-		return true;
-	}
-
 	if (aScheme == AIS_SelectionScheme_Replace)
 	{
 		ctx->ClearSelected(Standard_False);
-		ctx->SetSelected(detectedObject, Standard_True);
+		ctx->SetSelected(detectedObject, Standard_False);
 	}
 	else if (aScheme == AIS_SelectionScheme_Add)
 	{
 		if (!ctx->IsSelected(detectedObject))
 		{
-			ctx->AddOrRemoveSelected(detectedObject, Standard_True);
+			ctx->AddOrRemoveSelected(detectedObject, Standard_False);
 		}
 	}
 	else if (aScheme == AIS_SelectionScheme_Remove)
 	{
 		if (ctx->IsSelected(detectedObject))
 		{
-			ctx->AddOrRemoveSelected(detectedObject, Standard_True);
+			ctx->AddOrRemoveSelected(detectedObject, Standard_False);
 		}
 	}
 
 	m_hasSelectionAnchor = true;
-	ctx->UpdateSelected(Standard_True);
+	ctx->UpdateSelected(Standard_False);
+	UpdateSelectionHighlights();
+	UpdateViewer();
 	return true;
 }
 
@@ -1536,7 +1626,9 @@ bool COccResurfView::HandleEditClick(UINT nFlags, const CPoint& point)
 		return true;
 	}
 
-	ctx->UpdateSelected(Standard_True);
+	ctx->UpdateSelected(Standard_False);
+	UpdateSelectionHighlights();
+	UpdateViewer();
 	return true;
 }
 
@@ -1571,7 +1663,9 @@ void COccResurfView::SelectModelAtPoint(const CPoint& point, const AIS_Selection
 	}
 
 	m_hasSelectionAnchor = true;
-	ctx->UpdateSelected(Standard_True);
+	ctx->UpdateSelected(Standard_False);
+	UpdateSelectionHighlights();
+	UpdateViewer();
 }
 
 void COccResurfView::SelectAllDisplayedObjects(Handle(AIS_InteractiveContext) ctx)
@@ -1589,6 +1683,7 @@ void COccResurfView::SelectAllDisplayedObjects(Handle(AIS_InteractiveContext) ct
 			ctx->AddOrRemoveSelected(aShape, Standard_False);
 		}
 	}
+	UpdateSelectionHighlights();
 	UpdateViewer();
 }
 
@@ -1608,6 +1703,7 @@ void COccResurfView::InvertDisplayedSelection(Handle(AIS_InteractiveContext) ctx
 
 		ctx->AddOrRemoveSelected(aShape, Standard_False);
 	}
+	UpdateSelectionHighlights();
 	UpdateViewer();
 }
 
@@ -1619,6 +1715,7 @@ void COccResurfView::HideUnselectedObjects(Handle(AIS_InteractiveContext) ctx)
 	}
 
 	RecordUndoSnapshot();
+	ClearSelectionHighlights();
 	for (const auto& aShape : GetDocument()->GetModelShapes())
 	{
 		if (!aShape.IsNull() && ctx->IsDisplayed(aShape) && !ctx->IsSelected(aShape))
@@ -1626,6 +1723,7 @@ void COccResurfView::HideUnselectedObjects(Handle(AIS_InteractiveContext) ctx)
 			ctx->Erase(aShape, Standard_False);
 		}
 	}
+	UpdateSelectionHighlights();
 	UpdateViewer();
 }
 
@@ -1669,6 +1767,7 @@ void COccResurfView::DuplicateSelectedObjects(Handle(AIS_InteractiveContext) ctx
 		ctx->SetSelected(aDuplicate, Standard_False);
 	}
 	GetDocument()->UpdateModelCenter();
+	UpdateSelectionHighlights();
 	UpdateViewer();
 }
 
@@ -1680,6 +1779,7 @@ void COccResurfView::DeleteSelectedObjects(Handle(AIS_InteractiveContext) ctx)
 	}
 
 	RecordUndoSnapshot();
+	ClearSelectionHighlights();
 	std::vector<const AIS_InteractiveObject*> aToDelete;
 	for (ctx->InitSelected(); ctx->MoreSelected(); ctx->NextSelected())
 	{
@@ -1690,6 +1790,7 @@ void COccResurfView::DeleteSelectedObjects(Handle(AIS_InteractiveContext) ctx)
 		}
 	}
 
+	GetDocument()->DeleteSelectedModelObjects();
 	for (const auto* anObjectPtr : aToDelete)
 	{
 		for (auto& aShape : const_cast<std::vector<Handle(AIS_Shape)>&>(GetDocument()->GetModelShapes()))
@@ -1710,7 +1811,13 @@ void COccResurfView::DeleteSelectedObjects(Handle(AIS_InteractiveContext) ctx)
 		[](const Handle(AIS_Shape)& theShape) { return theShape.IsNull(); }),
 		aShapes.end());
 	GetDocument()->UpdateModelCenter();
+	UpdateSelectionHighlights();
 	UpdateViewer();
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd());
+	if (mainFrame != nullptr)
+	{
+		mainFrame->RefreshObjectPanels();
+	}
 }
 
 void COccResurfView::ApplySelectionRectangle(Handle(AIS_InteractiveContext) ctx, const CPoint& point)
@@ -1722,8 +1829,10 @@ void COccResurfView::ApplySelectionRectangle(Handle(AIS_InteractiveContext) ctx,
 
 	const Graphic3d_Vec2i aMin(std::min(m_mouseDownPoint.x, point.x), std::min(m_mouseDownPoint.y, point.y));
 	const Graphic3d_Vec2i aMax(std::max(m_mouseDownPoint.x, point.x), std::max(m_mouseDownPoint.y, point.y));
+	ClearSelectionHighlights();
 	ctx->SelectRectangle(aMin, aMax, myView, AIS_SelectionScheme_Replace);
-	ctx->UpdateSelected(Standard_True);
+	ctx->UpdateSelected(Standard_False);
+	UpdateSelectionHighlights();
 	UpdateViewer();
 }
 
@@ -1747,8 +1856,10 @@ void COccResurfView::ApplyCircleSelection(Handle(AIS_InteractiveContext) ctx, co
 			m_mouseDownPoint.y + aRadius * std::sin(aAngle)));
 	}
 
+	ClearSelectionHighlights();
 	ctx->SelectPolygon(aPolyline, myView, AIS_SelectionScheme_Replace);
-	ctx->UpdateSelected(Standard_True);
+	ctx->UpdateSelected(Standard_False);
+	UpdateSelectionHighlights();
 	UpdateViewer();
 }
 
@@ -2014,4 +2125,9 @@ void COccResurfView::OnInitialUpdate()
 	selectionStyle->FaceBoundaryAspect()->SetWidth(5.0);
 	GetDocument()->DrawSphere(6.0);
 	FitAll();
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, AfxGetMainWnd());
+	if (mainFrame != nullptr)
+	{
+		mainFrame->RefreshObjectPanels();
+	}
 }

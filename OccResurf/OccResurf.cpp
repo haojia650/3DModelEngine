@@ -213,10 +213,44 @@ void COccResurfApp::PreLoadState()
 
 void COccResurfApp::LoadCustomState()
 {
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, m_pMainWnd);
+	if (mainFrame == nullptr)
+	{
+		return;
+	}
+
+	CStringArray history;
+	const int count = GetInt(_T("CommandHistoryCount"), 0);
+	for (int i = 0; i < count && i < 50; ++i)
+	{
+		CString key;
+		key.Format(_T("CommandHistory%d"), i);
+		CString command = GetString(key);
+		if (!command.IsEmpty())
+		{
+			history.Add(command);
+		}
+	}
+	mainFrame->GetOutputPane().SetCommandHistory(history);
 }
 
 void COccResurfApp::SaveCustomState()
 {
+	CMainFrame* mainFrame = DYNAMIC_DOWNCAST(CMainFrame, m_pMainWnd);
+	if (mainFrame == nullptr)
+	{
+		return;
+	}
+
+	CStringArray history;
+	mainFrame->GetOutputPane().GetCommandHistory(history);
+	WriteInt(_T("CommandHistoryCount"), static_cast<int>(history.GetCount()));
+	for (INT_PTR i = 0; i < history.GetCount(); ++i)
+	{
+		CString key;
+		key.Format(_T("CommandHistory%d"), static_cast<int>(i));
+		WriteString(key, history.GetAt(i));
+	}
 }
 
 // COccResurfApp 消息处理程序

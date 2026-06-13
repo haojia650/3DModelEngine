@@ -8,6 +8,9 @@
 #include "OutputWnd.h"
 #include "PropertiesWnd.h"
 
+class COccResurfDoc;
+class COccResurfView;
+
 class CMainFrame : public CFrameWndEx
 {
 	
@@ -22,6 +25,11 @@ public:
 public:
 	CPropertiesWnd& GetPropertiesPane() { return m_wndProperties; }
 	CFileView& GetFileViewPane() { return m_wndFileView; }
+	COutputWnd& GetOutputPane() { return m_wndOutput; }
+	COccResurfDoc* GetActiveOccDocument() const;
+	COccResurfView* GetActiveOccView() const;
+	void RefreshObjectPanels(int selectedObjectId = 0);
+	void ShowObjectProperties(int objectId);
 
 // 重写
 public:
@@ -54,6 +62,10 @@ protected:
 	afx_msg void OnApplicationLook(UINT id);
 	afx_msg void OnUpdateApplicationLook(CCmdUI* pCmdUI);
 	afx_msg void OnSettingChange(UINT uFlags, LPCTSTR lpszSection);
+	afx_msg void OnEditUndo();
+	afx_msg void OnUpdateEditUndo(CCmdUI* pCmdUI);
+	afx_msg void OnEditRedo();
+	afx_msg void OnUpdateEditRedo(CCmdUI* pCmdUI);
 	DECLARE_MESSAGE_MAP()
 
 	BOOL CreateDockingWindows();

@@ -7,6 +7,8 @@
 #include "OccResurf.h"
 
 #include "MainFrm.h"
+#include "OccResurfDoc.h"
+#include "OccResurfView.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -27,6 +29,10 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWndEx)
 	ON_COMMAND_RANGE(ID_VIEW_APPLOOK_WIN_2000, ID_VIEW_APPLOOK_WINDOWS_7, &CMainFrame::OnApplicationLook)
 	ON_UPDATE_COMMAND_UI_RANGE(ID_VIEW_APPLOOK_WIN_2000, ID_VIEW_APPLOOK_WINDOWS_7, &CMainFrame::OnUpdateApplicationLook)
 	ON_WM_SETTINGCHANGE()
+	ON_COMMAND(ID_EDIT_UNDO, &CMainFrame::OnEditUndo)
+	ON_UPDATE_COMMAND_UI(ID_EDIT_UNDO, &CMainFrame::OnUpdateEditUndo)
+	ON_COMMAND(ID_EDIT_REDO, &CMainFrame::OnEditRedo)
+	ON_UPDATE_COMMAND_UI(ID_EDIT_REDO, &CMainFrame::OnUpdateEditRedo)
 END_MESSAGE_MAP()
 
 static UINT indicators[] =
@@ -185,6 +191,43 @@ BOOL CMainFrame::PreCreateWindow(CREATESTRUCT& cs)
 	//  CREATESTRUCT cs 来修改窗口类或样式
 
 	return TRUE;
+}
+
+COccResurfView* CMainFrame::GetActiveOccView() const
+{
+	return DYNAMIC_DOWNCAST(COccResurfView, GetActiveView());
+}
+
+COccResurfDoc* CMainFrame::GetActiveOccDocument() const
+{
+	COccResurfView* view = GetActiveOccView();
+	return view != nullptr ? view->GetDocument() : nullptr;
+}
+
+void CMainFrame::RefreshObjectPanels(int selectedObjectId)
+{
+	m_wndFileView.RefreshObjectTree();
+	if (selectedObjectId > 0)
+	{
+		m_wndProperties.ShowObjectProperties(selectedObjectId);
+	}
+	else
+	{
+		const int objectId = m_wndFileView.GetSelectedObjectId();
+		if (objectId > 0)
+		{
+			m_wndProperties.ShowObjectProperties(objectId);
+		}
+		else
+		{
+			m_wndProperties.ClearObjectProperties();
+		}
+	}
+}
+
+void CMainFrame::ShowObjectProperties(int objectId)
+{
+	m_wndProperties.ShowObjectProperties(objectId);
 }
 
 BOOL CMainFrame::CreateDockingWindows()
@@ -405,4 +448,34 @@ void CMainFrame::OnSettingChange(UINT uFlags, LPCTSTR lpszSection)
 {
 	CFrameWndEx::OnSettingChange(uFlags, lpszSection);
 	m_wndOutput.UpdateFonts();
+}
+
+void CMainFrame::OnEditUndo()
+{
+	COccResurfView* view = GetActiveOccView();
+	if (view != nullptr)
+	{
+		view->UndoLastAction();
+	}
+}
+
+void CMainFrame::OnUpdateEditUndo(CCmdUI* pCmdUI)
+{
+	COccResurfView* view = GetActiveOccView();
+	pCmdUI->Enable(view != nullptr && view->CanUndo());
+}
+
+void CMainFrame::OnEditRedo()
+{
+	COccResurfView* view = GetActiveOccView();
+	if (view != nullptr)
+	{
+		view->RedoLastAction();
+	}
+}
+
+void CMainFrame::OnUpdateEditRedo(CCmdUI* pCmdUI)
+{
+	COccResurfView* view = GetActiveOccView();
+	pCmdUI->Enable(view != nullptr && view->CanRedo());
 }

@@ -21,6 +21,8 @@ public:
 
 	void AdjustLayout();
 	void OnChangeVisualStyle();
+	void RefreshObjectTree();
+	int GetSelectedObjectId() const;
 
 // 特性
 protected:
@@ -49,6 +51,7 @@ protected:
 	afx_msg void OnEditClear();
 	afx_msg void OnPaint();
 	afx_msg void OnSetFocus(CWnd* pOldWnd);
+	afx_msg void OnTreeSelectionChanged(NMHDR* pNMHDR, LRESULT* pResult);
 
 	DECLARE_MESSAGE_MAP()
 };
